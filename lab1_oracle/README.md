@@ -87,7 +87,7 @@ ENABLE;
 
 ### 2. Wypełniamy tabele przykładowymi danymi
 
-4 wycieczki
+#### 4 wycieczki
 ```sql
 INSERT INTO wycieczki (nazwa, kraj, data, opis, liczba_miejsc)
     VALUES ('Wycieczka do Paryża', 'Francja',
@@ -105,9 +105,12 @@ INSERT INTO wycieczki (nazwa, kraj, data, opis, liczba_miejsc)
     VALUES ('Spacer po Nowej Hucie', 'Polska',
         TO_DATE('2019-12-18', 'YYYY-MM-DD'), 'Zadziwiająca dzielnica...', 20);
 ```
-![](2_wycieczki.png)
+```sql
+SELECT * FROM wycieczki;
+```
+![](2a_wycieczki.png)
 
-10 osób
+#### 10 osób
 ```sql
 INSERT INTO osoby (imie, nazwisko, pesel, kontakt)
     VALUES ('Jan', 'Kowalski', '95100318445', 'e-mail: jan.kowalski@onet.pl');
@@ -139,9 +142,12 @@ INSERT INTO osoby (imie, nazwisko, pesel, kontakt)
 INSERT INTO osoby (imie, nazwisko, pesel, kontakt)
     VALUES ('Wojciech', 'Król', '61083155836', 'tel. (012) 234-44-44');
 ```
-![](2_osoby.png)
+```sql
+SELECT * FROM osoby;
+```
+![](2b_osoby.png)
 
-10 rezerwacji
+#### 10 rezerwacji
 ```sql
 INSERT INTO rezerwacje(id_wycieczki, id_osoby, status) VALUES (1, 1, 'N');
 INSERT INTO rezerwacje(id_wycieczki, id_osoby, status) VALUES (1, 2, 'P');
@@ -154,42 +160,37 @@ INSERT INTO rezerwacje(id_wycieczki, id_osoby, status) VALUES (4, 6, 'N');
 INSERT INTO rezerwacje(id_wycieczki, id_osoby, status) VALUES (4, 7, 'Z');
 INSERT INTO rezerwacje(id_wycieczki, id_osoby, status) VALUES (4, 8, 'A');
 ```
-![](2_rezerwacje.png)
+```sql
+SELECT * FROM rezerwacje;
+```
+![](2c_rezerwacje.png)
 
 ### 3. Tworzenie widoków
 Należy przygotować kilka widoków ułatwiających dostęp do danych.
 
-Widoki z sufiksem `_id` zawierają dodatkowo kolumny z identyfikatorami wycieczek, osób oraz rezerwacji.
+Każdy podpunkt został zrealizowany na dwa sposoby:
+* **wersja standardowa** – widok jest tworzony na podstawie zapytania SQL odwołującego się jedynie do istniejących tabel. Wadą tego rozwiązania jest brak spójności oraz duplikacja fragmentów zapytań odpowiedzialnych za realizację logiki biznesowej.
+* **wersja z widokiem pośrednim/z wykorzystaniem innych widoków** – widok jest tworzony na podstawie istniejących tabel lub innych widoków.
+Widoki z sufiksem `_id` zawierają dodatkowo kolumny z identyfikatorami wycieczek, osób lub rezerwacji i są wykorzystywane do złączeń. Metoda ta pozwala pozbyć się potwórzeń fragmentów zapytań dotyczących logiki biznesowej.
 
 #### a) wycieczki_osoby(kraj, data, nazwa_wycieczki, imie, nazwisko, status_rezerwacji)
+Na podstawie przykładu z pliku `wyc_proc.sql` przyjmuję założenie, że anulowane rezerwacje również powinny być wyświetlane. W przeciwnym wypadku, zapytanie należy rozszerzyć o warunek `r.status != 'A'`.
 
-Na podstawie przykładu z pliku `wyc_proc.sql` przyjmuję założenie, że anulowane rezerwacje również powinny być wyświetlane.
+##### Wersja standardowa:
 ```sql
-CREATE OR REPLACE VIEW wycieczki_osoby_id AS
+CREATE OR REPLACE VIEW wycieczki_osoby AS
     SELECT
-        w.id_wycieczki,
         w.kraj,
         w.data,
         w.nazwa AS nazwa_wycieczki,
-        o.id_osoby,
         o.imie,
         o.nazwisko,
-        r.nr_rezerwacji,
         r.status AS status_rezerwacji
     FROM wycieczki w
         JOIN rezerwacje r ON w.id_wycieczki = r.id_wycieczki
         JOIN osoby o ON r.id_osoby = o.id_osoby;
-
-CREATE OR REPLACE VIEW wycieczki_osoby AS
-    SELECT kraj, data, nazwa_wycieczki, imie, nazwisko, status_rezerwacji
-    FROM wycieczki_osoby_id;
 ```
-```sql
-SELECT * FROM wycieczki_osoby;
-```
-![](3a_wycieczki_osoby.png)
-
-#### b) wycieczki_osoby_potwierdzone(kraj, data, nazwa_wycieczki, imie, nazwisko, status_rezerwacji)
+##### Wersja z widokiem pośrednim:
 ```sql
 CREATE OR REPLACE VIEW wycieczki_osoby_id AS
     SELECT
@@ -214,9 +215,50 @@ CREATE OR REPLACE VIEW wycieczki_osoby AS
 ```sql
 SELECT * FROM wycieczki_osoby;
 ```
+![](3a_wycieczki_osoby.png)
+
+#### b) wycieczki_osoby_potwierdzone(kraj, data, nazwa_wycieczki, imie, nazwisko, status_rezerwacji)
+##### Wersja standardowa:
+```sql
+CREATE OR REPLACE VIEW wycieczki_osoby_potwierdzone AS
+    SELECT *
+    FROM wycieczki_osoby
+    WHERE status_rezerwacji IN ('P', 'Z');
+```
+##### Wersja z wykorzystaniem innych widoków:
+```sql
+CREATE OR REPLACE VIEW wycieczki_osoby_potwierdzone_id AS
+    SELECT *
+    FROM wycieczki_osoby_id
+    WHERE status_rezerwacji IN ('P', 'Z');
+
+CREATE OR REPLACE VIEW wycieczki_osoby_potwierdzone AS
+    SELECT kraj, data, nazwa_wycieczki, imie, nazwisko, status_rezerwacji
+    FROM wycieczki_osoby_potwierdzone_id;
+```
+```sql
+SELECT * FROM wycieczki_osoby_potwierdzone;
+```
 ![](3b_wycieczki_osoby_potwierdzone.png)
 
 #### c) wycieczki_przyszle(kraj, data, nazwa_wycieczki, imie, nazwisko, status_rezerwacji)
+##### Wersja standardowa:
+```sql
+CREATE OR REPLACE VIEW wycieczki_przyszle AS
+    SELECT
+        w.kraj,
+        w.data,
+        w.nazwa AS nazwa_wycieczki,
+        o.imie,
+        o.nazwisko,
+        r.status AS status_rezerwacji
+    FROM wycieczki w
+        JOIN rezerwacje r ON w.id_wycieczki = r.id_wycieczki
+        JOIN osoby o ON r.id_osoby = o.id_osoby
+    WHERE
+        w.data > SYSDATE;
+```
+##### Wersja z wykorzystaniem innych widoków:
 ```sql
 CREATE OR REPLACE VIEW wycieczki_przyszle_id AS
     SELECT *
@@ -233,6 +275,23 @@ SELECT * FROM wycieczki_przyszle;
 ![](3c_wycieczki_przyszle.png)
 
 #### d) wycieczki_miejsca(kraj, data, nazwa_wycieczki, liczba_miejsc, liczba_wolnych_miejsc)
+##### Wersja standardowa:
+```sql
+CREATE OR REPLACE VIEW wycieczki_miejsca AS
+    SELECT
+        w.kraj,
+        w.data,
+        w.nazwa AS nazwa_wycieczki,
+        w.liczba_miejsc,
+        (w.liczba_miejsc - COUNT(r.nr_rezerwacji)) AS liczba_wolnych_miejsc
+    FROM wycieczki w
+        JOIN rezerwacje r
+            ON w.id_wycieczki = r.id_wycieczki
+            AND r.status != 'A'
+    GROUP BY
+        w.id_wycieczki, w.kraj, w.data, w.nazwa, w.liczba_miejsc;
+```
+##### Wersja z widokiem pośrednim:
 ```sql
 CREATE OR REPLACE VIEW wycieczki_miejsca_id AS
     SELECT
@@ -243,7 +302,9 @@ CREATE OR REPLACE VIEW wycieczki_miejsca_id AS
         w.liczba_miejsc,
         (w.liczba_miejsc - COUNT(r.nr_rezerwacji)) AS liczba_wolnych_miejsc
     FROM wycieczki w
-        JOIN rezerwacje r ON w.id_wycieczki = r.id_wycieczki
+        JOIN rezerwacje r
+            ON w.id_wycieczki = r.id_wycieczki
+            AND r.status != 'A'
     GROUP BY
         w.id_wycieczki, w.kraj, w.data, w.nazwa, w.liczba_miejsc;
 
@@ -257,6 +318,25 @@ SELECT * FROM wycieczki_miejsca;
 ![](3d_wycieczki_miejsca.png)
 
 #### e) dostępne_wycieczki(kraj, data, nazwa_wycieczki, liczba_miejsc, liczba_wolnych_miejsc)
+##### Wersja standardowa:
+```sql
+CREATE OR REPLACE VIEW dostepne_wycieczki AS
+    SELECT
+        w.kraj,
+        w.data,
+        w.nazwa AS nazwa_wycieczki,
+        w.liczba_miejsc,
+        (w.liczba_miejsc - COUNT(r.nr_rezerwacji)) AS liczba_wolnych_miejsc
+    FROM wycieczki w
+        JOIN rezerwacje r ON w.id_wycieczki = r.id_wycieczki
+    WHERE
+        w.data > SYSDATE
+    GROUP BY
+        w.id_wycieczki, w.kraj, w.data, w.nazwa, w.liczba_miejsc
+    HAVING
+        (w.liczba_miejsc - COUNT(r.nr_rezerwacji)) > 0;
+```
+##### Wersja z wykorzystaniem innych widoków:
 ```sql
 CREATE OR REPLACE VIEW dostepne_wycieczki_id AS
     SELECT *
@@ -273,6 +353,23 @@ SELECT * FROM dostepne_wycieczki;
 ![](3e_dostepne_wycieczki.png)
 
 #### f) rezerwacje_do_anulowania – lista niepotwierdzonych rezerwacji które powinne zostać anulowane, rezerwacje przygotowywane są do anulowania na tydzień przed wyjazdem
+##### Wersja standardowa:
+```sql
+CREATE OR REPLACE VIEW rezerwacje_do_anulowania AS
+    SELECT
+        w.kraj,
+        w.data,
+        w.nazwa AS nazwa_wycieczki,
+        o.imie,
+        o.nazwisko,
+        o.kontakt
+    FROM rezerwacje r
+        JOIN wycieczki w ON w.id_wycieczki = r.id_wycieczki
+        JOIN osoby o ON o.id_osoby = r.id_osoby
+    WHERE
+        r.status = 'N' AND w.data BETWEEN SYSDATE AND SYSDATE + INTERVAL '7' DAY;
+```
+##### Wersja z wykorzystaniem innych widoków:
 ```sql
 CREATE OR REPLACE VIEW rezerwacje_do_anulowania AS
     SELECT
@@ -298,8 +395,21 @@ Proponowany zestaw widoków można rozbudować wedle uznania/potrzeb.
 ### 4. Tworzenie procedur/funkcji pobierających dane
 Podobnie jak w poprzednim przykładzie należy przygotować kilka procedur ułatwiających dostęp do danych. Procedury/funkcje powinny zwracać tabelę/zbiór wynikowy. Należy zwrócić uwagę na kontrolę parametrów (np. jeśli parametrem jest id_wycieczki to należy sprawdzić czy taka wycieczka istnieje).
 
-Utworzyłem dodatkowe procedury, które sprawdzają, czy istnieje osoba, wycieczka albo rezerwacja o podanym identyfikatorze.
+Utworzyłem procedury pomocnicze, które sprawdzają, czy osoba, wycieczka albo rezerwacja o podanym identyfikatorze istnieje w bazie danych.
 
+Oto kompletna lista kodów zdefiniowanych błędów:
+| Kod | Opis |
+| :-: | :- |
+| -20001 | Osoba o podanym identyfikatorze nie istnieje |
+| -20002 | Wycieczka o podanym identyfikatorze nie istnieje |
+| -20003 | Rezerwacja o podanym numerze nie istnieje |
+| -20004 | Początek przedziału dat nie może być później niż koniec |
+| -20005 | Wycieczka już się odbyła |
+| -20006 | Brak wolnych miejsc |
+| -20007 | Liczba miejsc musi być dodatnią liczbą naturalną |
+| -20008 | Liczba miejsc nie może być mniejsza niż liczba zajętych miejsc |
+
+#### sprawdz_czy_osoba_istnieje(id_osoby)
 ```sql
 CREATE OR REPLACE PROCEDURE sprawdz_czy_osoba_istnieje(
     arg_id_osoby osoby.id_osoby%TYPE
@@ -308,8 +418,8 @@ CREATE OR REPLACE PROCEDURE sprawdz_czy_osoba_istnieje(
 BEGIN
     SELECT COUNT(*)
     INTO osoby_count
-    FROM osoby o
-    WHERE o.id_osoby = arg_id_osoby;
+    FROM osoby
+    WHERE id_osoby = arg_id_osoby;
 
     IF osoby_count = 0 THEN
         RAISE_APPLICATION_ERROR(-20001, 'Osoba o podanym identyfikatorze nie istnieje');
@@ -317,6 +427,7 @@ BEGIN
 END;
 ```
 
+#### sprawdz_czy_wycieczka_istnieje(id_wycieczki)
 ```sql
 CREATE OR REPLACE PROCEDURE sprawdz_czy_wycieczka_istnieje(
     arg_id_wycieczki wycieczki.id_wycieczki%TYPE
@@ -325,8 +436,8 @@ CREATE OR REPLACE PROCEDURE sprawdz_czy_wycieczka_istnieje(
 BEGIN
     SELECT COUNT(*)
     INTO wycieczki_count
-    FROM wycieczki w
-    WHERE w.id_wycieczki = arg_id_wycieczki;
+    FROM wycieczki
+    WHERE id_wycieczki = arg_id_wycieczki;
 
     IF wycieczki_count = 0 THEN
         RAISE_APPLICATION_ERROR(-20002, 'Wycieczka o podanym identyfikatorze nie istnieje');
@@ -334,16 +445,17 @@ BEGIN
 END;
 ```
 
+#### sprawdz_czy_rezerwacja_istnieje(nr_rezerwacji)
 ```sql
 CREATE OR REPLACE PROCEDURE sprawdz_czy_rezerwacja_istnieje(
-    arg_id_rezerwacji rezerwacje.nr_rezerwacji%TYPE
+    arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE
 ) AS
     rezerwacje_count INTEGER;
 BEGIN
     SELECT COUNT(*)
     INTO rezerwacje_count
-    FROM rezerwacje r
-    WHERE r.nr_rezerwacji = arg_id_rezerwacji;
+    FROM rezerwacje
+    WHERE nr_rezerwacji = arg_nr_rezerwacji;
 
     IF rezerwacje_count = 0 THEN
         RAISE_APPLICATION_ERROR(-20003, 'Rezerwacja o podanym numerze nie istnieje');
@@ -351,7 +463,8 @@ BEGIN
 END;
 ```
 
-#### a) uczestnicy_wycieczki(id_wycieczki), procedura ma zwracać podobny zestaw danych jak widok wycieczki_osoby
+#### a) uczestnicy_wycieczki(id_wycieczki)
+Procedura ma zwracać podobny zestaw danych jak widok wycieczki_osoby.
 ```sql
 CREATE OR REPLACE TYPE uczestnik_wycieczki_type AS
     OBJECT (
@@ -386,9 +499,10 @@ SELECT * FROM TABLE(uczestnicy_wycieczki(1));
 ```
 ![](4a_uczestnicy_wycieczki.png)
 
-#### b) rezerwacje_osoby(id_osoby), procedura ma zwracać podobny zestaw danych jak widok wycieczki_osoby
+#### b) rezerwacje_osoby(id_osoby)
+Procedura ma zwracać podobny zestaw danych jak widok wycieczki_osoby.
 
-Analogicznie jak w przypadku widoku wycieczki_osoby przyjąłem założenie, że anulowane rezerwacje powinny również być zwracane.
+Analogicznie jak w przypadku widoku wycieczki_osoby przyjąłem założenie, że rezerwacje anulowane powinny również być zwracane.
 ```sql
 CREATE OR REPLACE TYPE rezerwacja_osoby_type AS
     OBJECT (
@@ -492,36 +606,244 @@ SELECT * FROM TABLE(dostepne_wycieczki_funkcja('Polska',
 ![](4d_dostepne_wycieczki.png)
 
 ### 5. Tworzenie procedur modyfikujących dane
-> Należy przygotować zestaw procedur pozwalających na modyfikację danych oraz kontrolę poprawności ich wprowadzania
-> a) dodaj_rezerwacje(id_wycieczki, id_osoby), procedura powinna kontrolować czy wycieczka jeszcze się nie odbyła, i czy sa wolne miejsca
-> b) zmien_status_rezerwacji(id_rezerwacji, status), procedura kontrolować czy możliwa jest zmiana statusu, np. zmiana statusu już anulowanej wycieczki (przywrócenie do stanu aktywnego nie zawsze jest możliwe)
-> c) zmien_liczbe_miejsc(id_wycieczki, liczba_miejsc), nie wszystkie zmiany liczby miejsc są dozwolone, nie można zmniejszyć liczby miesc na wartość poniżej liczby zarezerwowanych miejsc
-> Należy rozważyć użycie transakcji
-> Należy zwrócić uwagę na kontrolę parametrów (np. jeśli parametrem jest id_wycieczki to należy sprawdzić czy taka wycieczka istnieje, jeśli robimy rezerwację to należy sprawdzać czy są wolne miejsca)
+Należy przygotować zestaw procedur pozwalających na modyfikację danych oraz kontrolę poprawności ich wprowadzania. Należy rozważyć użycie transakcji. Należy zwrócić uwagę na kontrolę parametrów (np. jeśli parametrem jest id_wycieczki to należy sprawdzić czy taka wycieczka istnieje, jeśli robimy rezerwację to należy sprawdzać czy są wolne miejsca).
 
-### 6. Dodajemy tabelę dziennikującą zmiany statusu rezerwacji `rezerwacje_log(id, id_rezerwacji, data, status)`
-> Należy zmienić warstwę procedur modyfikujących dane tak aby dopisywały informację do dziennika
+Utworzyłem następujące procedury pomocnicze, które działają jak asercje (przerywają działanie procedury wywołującej i zwracają błąd, gdy warunek nie jest spełniony).
 
-### 7. Zmiana struktury bazy danych, w tabeli wycieczki dodajemy redundantne pole `liczba_wolnych_miejsc`
-> Należy zmodyfikować zestaw widoków. Proponuję dodać kolejne widoki (np. z sufiksem 2), które pobierają informację o wolnych miejscach z nowo dodanego pola.
-> Należy napisać procedurę przelicz która zaktualizuje wartość liczby wolnych miejsc dla już
-istniejących danych
-> Należy zmodyfikować warstwę procedur pobierających dane, podobnie jak w przypadku
-widoków.
-> Należy zmodyfikować procedury wprowadzające dane tak aby korzystały/aktualizowały pole liczba_wolnych_miejsc w tabeli wycieczki
-> Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 2)
+#### sprawdz_czy_wycieczka_jeszcze_sie_nie_odbyla(id_wycieczki)
+```sql
+CREATE OR REPLACE PROCEDURE sprawdz_czy_wycieczka_jeszcze_sie_nie_odbyla(
+    arg_id_wycieczki wycieczki.id_wycieczki%TYPE
+) AS
+    wycieczki_count INTEGER;
+BEGIN
+    SELECT COUNT(*)
+        INTO wycieczki_count
+        FROM wycieczki
+        WHERE id_wycieczki = arg_id_wycieczki AND data > SYSDATE;
+
+    IF wycieczki_count = 0 THEN
+        RAISE_APPLICATION_ERROR(-20005, 'Wycieczka już się odbyła');
+    END IF;
+END;
+```
+
+#### sprawdz_czy_jest_wolne_miejsce(id_wycieczki)
+```sql
+CREATE OR REPLACE PROCEDURE sprawdz_czy_jest_wolne_miejsce(
+    arg_id_wycieczki wycieczki.id_wycieczki%TYPE
+) AS
+    liczba_wolnych_miejsc INTEGER;
+BEGIN
+    SELECT liczba_wolnych_miejsc
+        INTO liczba_wolnych_miejsc
+        FROM wycieczki_miejsca_id
+        WHERE id_wycieczki = arg_id_wycieczki;
+
+    IF liczba_wolnych_miejsc <= 0 THEN
+        RAISE_APPLICATION_ERROR(-20006, 'Brak wolnych miejsc');
+    END IF;
+END;
+```
+
+#### sprawdz_czy_nie_istnieje_rezerwacja
+```sql
+CREATE OR REPLACE PROCEDURE sprawdz_czy_nie_istnieje_rezerwacja(
+    arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
+    arg_id_osoby osoby.id_osoby%TYPE
+) AS
+    rezerwacje_count INTEGER;
+BEGIN
+    SELECT COUNT(*)
+        INTO rezerwacje_count
+        FROM rezerwacje
+        WHERE id_wycieczki = arg_id_wycieczki AND id_osoby = arg_id_osoby;
+
+    IF rezerwacje_count > 0 THEN
+        RAISE_APPLICATION_ERROR(-20006, 'Rezerwacja już istnieje.');
+    END IF;
+END;
+```
+
+#### a) dodaj_rezerwacje(id_wycieczki, id_osoby)
+Procedura powinna kontrolować czy wycieczka jeszcze się nie odbyła i czy są wolne miejsca.
+```sql
+CREATE OR REPLACE PROCEDURE dodaj_rezerwacje(
+    arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
+    arg_id_osoby osoby.id_osoby%TYPE
+) AS
+BEGIN
+    sprawdz_czy_wycieczka_istnieje(arg_id_wycieczki);
+    sprawdz_czy_wycieczka_jeszcze_sie_nie_odbyla(arg_id_wycieczki);
+    sprawdz_czy_jest_wolne_miejsce(arg_id_wycieczki);
+    sprawdz_czy_osoba_istnieje(arg_id_osoby);
+    sprawdz_czy_nie_istnieje_rezerwacja(arg_id_wycieczki, arg_id_osoby);
+
+    INSERT INTO rezerwacje (id_wycieczki, id_osoby, status)
+        VALUES (arg_id_wycieczki, arg_id_osoby, 'N');
+END;
+```
+
+#### b) zmien_status_rezerwacji(nr_rezerwacji, status)
+Procedura kontrolować czy możliwa jest zmiana statusu, np. zmiana statusu już anulowanej wycieczki (przywrócenie do stanu aktywnego nie zawsze jest możliwe).
+```sql
+CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji(
+    arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
+    arg_status rezerwacje.status%TYPE
+) AS
+    current_status rezerwacje.status%TYPE;
+    current_id_wycieczki wycieczki.id_wycieczki%TYPE;
+BEGIN
+    sprawdz_czy_rezerwacja_istnieje(arg_nr_rezerwacji);
+
+    SELECT status
+        INTO current_status
+        FROM rezerwacje
+        WHERE nr_rezerwacji = arg_nr_rezerwacji;
+
+    IF current_status = 'A' AND arg_status != 'A' THEN
+        SELECT id_wycieczki
+        INTO current_id_wycieczki
+        FROM rezerwacje
+        WHERE nr_rezerwacji = arg_nr_rezerwacji;
+
+        sprawdz_czy_jest_wolne_miejsce(current_id_wycieczki);
+    END IF;
+
+    IF current_status != arg_status THEN
+        UPDATE rezerwacje
+            SET status = arg_status
+            WHERE nr_rezerwacji = arg_nr_rezerwacji;
+    END IF;
+END;
+```
+
+#### c) zmien_liczbe_miejsc(id_wycieczki, liczba_miejsc)
+Nie wszystkie zmiany liczby miejsc są dozwolone, nie można zmniejszyć liczby miejsc na wartość poniżej liczby zarezerwowanych miejsc.
+```sql
+CREATE OR REPLACE PROCEDURE zmien_liczbe_miejsc(
+    arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
+    arg_liczba_miejsc INTEGER
+) AS
+    liczba_zajetych_miejsc integer;
+BEGIN
+    IF arg_liczba_miejsc <= 0 THEN
+        RAISE_APPLICATION_ERROR(-20007, 'Liczba miejsc musi być dodatnią liczbą naturalną');
+    END IF;
+    sprawdz_czy_wycieczka_istnieje(arg_id_wycieczki);
+
+    SELECT (liczba_miejsc - liczba_wolnych_miejsc)
+        INTO liczba_zajetych_miejsc
+        FROM wycieczki_miejsca_id
+        WHERE id_wycieczki = arg_id_wycieczki;
+
+    IF arg_liczba_miejsc < liczba_zajetych_miejsc THEN
+        RAISE_APPLICATION_ERROR(-20008, 'Liczba miejsc nie może być mniejsza niż liczba zajętych miejsc');
+    END IF;
+
+    UPDATE wycieczki
+        SET liczba_miejsc = arg_liczba_miejsc
+        WHERE id_wycieczki = arg_id_wycieczki;
+END;
+```
+
+### 6. Dodajemy tabelę dziennikującą zmiany statusu rezerwacji rezerwacje_log(id, id_rezerwacji, data, status)
+```sql
+CREATE TABLE rezerwacje_log (
+    id INT GENERATED ALWAYS AS IDENTITY NOT NULL,
+    id_rezerwacji INT,
+    data DATE,
+    status CHAR(1),
+    CONSTRAINT rezerwacje_log_pk PRIMARY KEY (id) ENABLE
+);
+
+ALTER TABLE rezerwacje_log
+    ADD CONSTRAINT rezerwacje_log_fk1
+        FOREIGN KEY (id_rezerwacji)
+            REFERENCES rezerwacje (nr_rezerwacji) ENABLE;
+
+ALTER TABLE rezerwacje_log
+    ADD CONSTRAINT rezerwacje_log_chk1
+        CHECK (status IN ('N', 'P', 'Z', 'A')) ENABLE;
+```
+Należy zmienić warstwę procedur modyfikujących dane tak aby dopisywały informację do dziennika.
+
+#### a) dodaj_rezerwacje(id_wycieczki, id_osoby)
+```sql
+CREATE OR REPLACE PROCEDURE dodaj_rezerwacje(
+    arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
+    arg_id_osoby osoby.id_osoby%TYPE
+) AS
+    inserted_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE;
+    inserted_status rezerwacje.status%TYPE;
+BEGIN
+    sprawdz_czy_wycieczka_istnieje(arg_id_wycieczki);
+    sprawdz_czy_wycieczka_jeszcze_sie_nie_odbyla(arg_id_wycieczki);
+    sprawdz_czy_jest_wolne_miejsce(arg_id_wycieczki);
+    sprawdz_czy_osoba_istnieje(arg_id_osoby);
+    sprawdz_czy_nie_istnieje_rezerwacja(arg_id_wycieczki, arg_id_osoby);
+
+    INSERT INTO rezerwacje (id_wycieczki, id_osoby, status)
+        VALUES (arg_id_wycieczki, arg_id_osoby, 'N')
+        RETURNING nr_rezerwacji, status INTO inserted_nr_rezerwacji, inserted_status;
+
+    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+        VALUES (inserted_nr_rezerwacji, SYSDATE, inserted_status);
+END;
+```
+
+#### b) zmien_status_rezerwacji(nr_rezerwacji, status)
+```sql
+CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji(
+    arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
+    arg_status rezerwacje.status%TYPE
+) AS
+    current_status rezerwacje.status%TYPE;
+    current_id_wycieczki wycieczki.id_wycieczki%TYPE;
+BEGIN
+    sprawdz_czy_rezerwacja_istnieje(arg_nr_rezerwacji);
+
+    SELECT status
+    INTO current_status
+    FROM rezerwacje
+    WHERE nr_rezerwacji = arg_nr_rezerwacji;
+
+    IF current_status = 'A' AND arg_status != 'A' THEN
+        SELECT id_wycieczki
+        INTO current_id_wycieczki
+        FROM rezerwacje
+        WHERE nr_rezerwacji = arg_nr_rezerwacji;
+
+        sprawdz_czy_jest_wolne_miejsce(current_id_wycieczki);
+    END IF;
+
+    IF current_status != arg_status THEN
+        UPDATE rezerwacje
+            SET status = arg_status
+            WHERE nr_rezerwacji = arg_nr_rezerwacji;
+
+        INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+            VALUES (arg_nr_rezerwacji, SYSDATE, arg_status);
+    END IF;
+END;
+```
+
+### 7. Zmiana struktury bazy danych, w tabeli wycieczki dodajemy redundantne pole liczba_wolnych_miejsc
+Należy zmodyfikować zestaw widoków. Proponuję dodać kolejne widoki (np. z sufiksem 2), które pobierają informację o wolnych miejscach z nowo dodanego pola.
+Należy napisać procedurę przelicz która zaktualizuje wartość liczby wolnych miejsc dla już istniejących danych.
+Należy zmodyfikować warstwę procedur pobierających dane, podobnie jak w przypadku widoków.
+Należy zmodyfikować procedury wprowadzające dane tak aby korzystały/aktualizowały pole liczba_wolnych_miejsc w tabeli wycieczki.
+Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 2).
 
 ### 8. Zmiana strategii zapisywania do dziennika rezerwacji. Realizacja przy pomocy triggerów
-> Należy wprowadzić zmianę która spowoduje że zapis do dziennika rezerwacji będzie realizowany przy pomocy trierów
-> triger obsługujący dodanie rezerwacji
-> triger obsługujący zmianę statusu
-> triger zabraniający usunięcia rezerwacji
-> Oczywiście po wprowadzeniu tej zmiany należy uaktualnić procedury modyfikujące dane.
-> Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 3)
+Należy wprowadzić zmianę która spowoduje że zapis do dziennika rezerwacji będzie realizowany przy pomocy triggerów.
+Oczywiście po wprowadzeniu tej zmiany należy uaktualnić procedury modyfikujące dane. Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 3).
+#### Trigger obsługujący dodanie rezerwacji
+#### Trigger obsługujący zmianę statusu
+#### Trigger zabraniający usunięcia rezerwacji
 
-### 9. Zmiana strategii obsługi redundantnego pola `liczba_wolnych_miejsc`. Realizacja przy pomocy trigerów
-> triger obsługujący dodanie rezerwacji
-> triger obsługujący zmianę statusu
-> triger obsługujący zmianę liczby miejsc na poziomie wycieczki
-> Oczywiście po wprowadzeniu tej zmiany należy uaktualnić procedury modyfikujące dane.
-> Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 3)
+### 9. Zmiana strategii obsługi redundantnego pola liczba_wolnych_miejsc. Realizacja przy pomocy trigerów
+Oczywiście po wprowadzeniu tej zmiany należy uaktualnić procedury modyfikujące dane. Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 4).
+#### Trigger obsługujący dodanie rezerwacji
+#### Trigger obsługujący zmianę statusu
+#### Trigger obsługujący zmianę liczby miejsc na poziomie wycieczki

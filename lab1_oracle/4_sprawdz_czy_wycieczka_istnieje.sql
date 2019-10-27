@@ -5,8 +5,8 @@ CREATE OR REPLACE PROCEDURE sprawdz_czy_wycieczka_istnieje(
 BEGIN
 	SELECT COUNT(*)
 	INTO wycieczki_count
-	FROM wycieczki w
-	WHERE w.id_wycieczki = arg_id_wycieczki;
+	FROM wycieczki
+	WHERE id_wycieczki = arg_id_wycieczki;
 
 	IF wycieczki_count = 0 THEN
 		RAISE_APPLICATION_ERROR(-20002, 'Wycieczka o podanym identyfikatorze nie istnieje');
