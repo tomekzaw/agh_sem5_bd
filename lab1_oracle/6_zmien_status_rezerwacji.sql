@@ -25,5 +25,8 @@ BEGIN
 		UPDATE rezerwacje
 			SET status = arg_status
 			WHERE nr_rezerwacji = arg_nr_rezerwacji;
+
+		INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+			VALUES (arg_nr_rezerwacji, SYSDATE, arg_status);
 	END IF;
 END;
