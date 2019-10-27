@@ -398,6 +398,7 @@ Podobnie jak w poprzednim przykładzie należy przygotować kilka procedur ułat
 Utworzyłem procedury pomocnicze, które sprawdzają, czy osoba, wycieczka albo rezerwacja o podanym identyfikatorze istnieje w bazie danych.
 
 Oto kompletna lista kodów zdefiniowanych błędów:
+
 | Kod | Opis |
 | :-: | :- |
 | -20001 | Osoba o podanym identyfikatorze nie istnieje |
