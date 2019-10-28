@@ -1016,30 +1016,11 @@ Oczywiście po wprowadzeniu tej zmiany należy uaktualnić procedury modyfikują
 
 #### Trigger obsługujący dodanie rezerwacji
 ```sql
-CREATE OR REPLACE TRIGGER rezerwacje_insert
+CREATE OR REPLACE TRIGGER rezerwacje_after_insert
 AFTER INSERT ON rezerwacje FOR EACH ROW
 BEGIN
-    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
-        VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
-END;
-```
-
-#### Trigger obsługujący zmianę statusu
-```sql
-CREATE OR REPLACE TRIGGER rezerwacje_update
-AFTER UPDATE ON rezerwacje FOR EACH ROW
-BEGIN
-    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
-        VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
-END;
-```
-
-#### Trigger zabraniający usunięcia rezerwacji
-```sql
-CREATE OR REPLACE TRIGGER rezerwacje_update
-BEFORE DELETE ON rezerwacje FOR EACH ROW
-BEGIN
-    RAISE_APPLICATION_ERROR(-20009, 'Nie można usuwać rezerwacji');
+	INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+		VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
 END;
 ```
 
@@ -1061,6 +1042,16 @@ BEGIN
     INSERT INTO rezerwacje (id_wycieczki, id_osoby, status)
         VALUES (arg_id_wycieczki, arg_id_osoby, 'N')
         RETURNING nr_rezerwacji, status INTO inserted_nr_rezerwacji, inserted_status;
+END;
+```
+
+#### Trigger obsługujący zmianę statusu
+```sql
+CREATE OR REPLACE TRIGGER rezerwacje_after_update
+AFTER UPDATE ON rezerwacje FOR EACH ROW
+BEGIN
+	INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+		VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
 END;
 ```
 
@@ -1100,5 +1091,123 @@ BEGIN
     UPDATE rezerwacje
         SET status = arg_status
         WHERE nr_rezerwacji = arg_nr_rezerwacji;
+END;
+```
+
+#### Trigger zabraniający usunięcia rezerwacji
+```sql
+CREATE OR REPLACE TRIGGER rezerwacje_before_delete
+BEFORE DELETE ON rezerwacje FOR EACH ROW
+BEGIN
+	RAISE_APPLICATION_ERROR(-20009, 'Nie można usuwać rezerwacji');
+END;
+```
+
+### 9. Zmiana strategii obsługi redundantnego pola liczba_wolnych_miejsc. Realizacja przy pomocy triggerów
+Oczywiście po wprowadzeniu tej zmiany należy uaktualnić procedury modyfikujące dane. Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 4).
+
+#### Trigger obsługujący dodanie rezerwacji
+```sql
+CREATE OR REPLACE TRIGGER rezerwacje_before_insert
+BEFORE INSERT ON rezerwacje FOR EACH ROW
+BEGIN
+    sprawdz_czy_wycieczka_istnieje(arg_id_wycieczki);
+    sprawdz_czy_wycieczka_jeszcze_sie_nie_odbyla(arg_id_wycieczki);
+    sprawdz_czy_jest_wolne_miejsce_2(arg_id_wycieczki);
+    sprawdz_czy_osoba_istnieje(arg_id_osoby);
+    sprawdz_czy_nie_istnieje_rezerwacja(arg_id_wycieczki, arg_id_osoby);
+END;
+```
+```sql
+CREATE OR REPLACE TRIGGER rezerwacje_after_insert
+AFTER INSERT ON rezerwacje FOR EACH ROW
+BEGIN
+	INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+		VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
+
+	UPDATE wycieczki
+		SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
+		WHERE id_wycieczki = :NEW.id_wycieczki;
+END;
+```
+
+#### dodaj_rezerwacje_4
+```sql
+CREATE OR REPLACE PROCEDURE dodaj_rezerwacje_4(
+    arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
+    arg_id_osoby osoby.id_osoby%TYPE
+) AS
+BEGIN
+    INSERT INTO rezerwacje (id_wycieczki, id_osoby, status)
+        VALUES (arg_id_wycieczki, arg_id_osoby, 'N');
+END;
+```
+
+#### Trigger obsługujący zmianę statusu
+```sql
+CREATE OR REPLACE TRIGGER rezerwacje_before_update
+BEFORE UPDATE ON rezerwacje FOR EACH ROW
+BEGIN
+	sprawdz_czy_rezerwacja_istnieje(:NEW.nr_rezerwacji);
+
+	IF :OLD.status = 'A' AND :NEW.status != 'A' THEN
+		sprawdz_czy_jest_wolne_miejsce_2(:NEW.id_wycieczki);
+
+		UPDATE wycieczki
+			SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
+			WHERE id_wycieczki = :NEW.id_wycieczki;
+	ELSIF :OLD.status != 'A' AND :NEW.status = 'A' THEN
+		UPDATE wycieczki
+			SET liczba_wolnych_miejsc = liczba_wolnych_miejsc + 1
+			WHERE id_wycieczki = :NEW.id_wycieczki;
+	END IF;
+END;
+```
+
+#### zmien_status_rezerwacji_4
+```sql
+CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji_4(
+	arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
+	arg_status rezerwacje.status%TYPE
+) AS
+	current_status rezerwacje.status%TYPE;
+	current_id_wycieczki wycieczki.id_wycieczki%TYPE;
+BEGIN
+	UPDATE rezerwacje
+		SET status = arg_status
+		WHERE nr_rezerwacji = arg_nr_rezerwacji;
+END;
+```
+
+#### Trigger obsługujący zmianę liczby miejsc na poziomie wycieczki
+```sql
+CREATE OR REPLACE TRIGGER wycieczki_before_update
+BEFORE UPDATE ON wycieczki FOR EACH ROW
+BEGIN
+	IF :NEW.liczba_miejsc <= 0 THEN
+		RAISE_APPLICATION_ERROR(-20007, 'Liczba miejsc musi być dodatnią liczbą naturalną');
+	END IF;
+	sprawdz_czy_wycieczka_istnieje(:NEW.id_wycieczki);
+
+	IF :NEW.liczba_miejsc < (:OLD.liczba_miejsc - :OLD.liczba_wolnych_miejsc) THEN
+		RAISE_APPLICATION_ERROR(-20008, 'Liczba miejsc nie może być mniejsza niż liczba zajętych miejsc');
+	END IF;
+
+	SELECT :NEW.liczba_miejsc - (:OLD.liczba_miejsc - :OLD.liczba_wolnych_miejsc)
+		INTO :NEW.liczba_wolnych_miejsc
+		FROM dual;
+END;
+```
+
+#### zmien_liczbe_miejsc_4
+```sql
+CREATE OR REPLACE PROCEDURE zmien_liczbe_miejsc_4(
+	arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
+	arg_liczba_miejsc INTEGER
+) AS
+BEGIN
+	UPDATE wycieczki
+		SET liczba_miejsc = arg_liczba_miejsc
+		WHERE id_wycieczki = arg_id_wycieczki;
 END;
 ```
