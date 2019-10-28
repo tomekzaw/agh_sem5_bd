@@ -352,7 +352,7 @@ SELECT * FROM dostepne_wycieczki;
 ```
 ![](3e_dostepne_wycieczki.png)
 
-#### f) rezerwacje_do_anulowania – lista niepotwierdzonych rezerwacji które powinne zostać anulowane, rezerwacje przygotowywane są do anulowania na tydzień przed wyjazdem
+#### f) rezerwacje_do_anulowania – lista niepotwierdzonych rezerwacji, które powinne zostać anulowane, rezerwacje przygotowywane są do anulowania na tydzień przed wyjazdem
 ##### Wersja standardowa:
 ```sql
 CREATE OR REPLACE VIEW rezerwacje_do_anulowania AS
@@ -409,6 +409,7 @@ Oto kompletna lista kodów zdefiniowanych błędów:
 | -20006 | Brak wolnych miejsc |
 | -20007 | Liczba miejsc musi być dodatnią liczbą naturalną |
 | -20008 | Liczba miejsc nie może być mniejsza niż liczba zajętych miejsc |
+| -20009 | Nie można usuwać rezerwacji |
 
 #### sprawdz_czy_osoba_istnieje(id_osoby)
 ```sql
@@ -587,7 +588,7 @@ CREATE OR REPLACE FUNCTION dostepne_wycieczki_funkcja(
 AS
 BEGIN
     IF arg_data_do < arg_data_od THEN
-        raise_application_error(-20004, 'Początek przedziału dat nie może być później niż koniec');
+        RAISE_APPLICATION_ERROR(-20004, 'Początek przedziału dat nie może być później niż koniec');
     END IF;
 
     FOR row IN (
@@ -851,7 +852,7 @@ CREATE OR REPLACE VIEW dostepne_wycieczki_2 AS
     WHERE liczba_wolnych_miejsc > 0 AND data > SYSDATE;
 ```
 
-Należy napisać procedurę przelicz która zaktualizuje wartość liczby wolnych miejsc dla już istniejących danych.
+Należy napisać procedurę przelicz, która zaktualizuje wartość liczby wolnych miejsc dla już istniejących danych.
 #### przelicz()
 ```sql
 CREATE OR REPLACE PROCEDURE przelicz AS
@@ -877,7 +878,7 @@ CREATE OR REPLACE FUNCTION dostepne_wycieczki_funkcja_2(
 AS
 BEGIN
     IF arg_data_do < arg_data_od THEN
-        raise_application_error(-20004, 'Początek przedziału dat nie może być później niż koniec');
+        RAISE_APPLICATION_ERROR(-20004, 'Początek przedziału dat nie może być później niż koniec');
     END IF;
 
     FOR row IN (
@@ -928,7 +929,10 @@ BEGIN
     INSERT INTO rezerwacje (id_wycieczki, id_osoby, status)
         VALUES (arg_id_wycieczki, arg_id_osoby, 'N')
         RETURNING nr_rezerwacji, status INTO inserted_nr_rezerwacji, inserted_status;
-    przelicz();
+
+    UPDATE wycieczki
+        SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
+        WHERE id_wycieczki = arg_id_wycieczki;
 
     INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
         VALUES (inserted_nr_rezerwacji, SYSDATE, inserted_status);
@@ -958,20 +962,22 @@ BEGIN
             WHERE nr_rezerwacji = arg_nr_rezerwacji;
 
         sprawdz_czy_jest_wolne_miejsce_2(current_id_wycieczki);
+
+        UPDATE wycieczki
+            SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
+            WHERE id_wycieczki = current_id_wycieczki;
+    ELSIF current_status != 'A' AND current_status = 'A' THEN
+        UPDATE wycieczki
+            SET liczba_wolnych_miejsc = liczba_wolnych_miejsc + 1
+            WHERE id_wycieczki = current_id_wycieczki;
     END IF;
 
-    IF current_status != arg_status THEN
-        UPDATE rezerwacje
-            SET status = arg_status
-            WHERE nr_rezerwacji = arg_nr_rezerwacji;
+    UPDATE rezerwacje
+        SET status = arg_status
+        WHERE nr_rezerwacji = arg_nr_rezerwacji;
 
-        IF current_status = 'A' or arg_status = 'A' THEN
-            przelicz();
-        END IF;
-
-        INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
-            VALUES (arg_nr_rezerwacji, SYSDATE, arg_status);
-    END IF;
+    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+        VALUES (arg_nr_rezerwacji, SYSDATE, arg_status);
 END;
 ```
 
@@ -1005,14 +1011,94 @@ END;
 ```
 
 ### 8. Zmiana strategii zapisywania do dziennika rezerwacji. Realizacja przy pomocy triggerów
-Należy wprowadzić zmianę która spowoduje że zapis do dziennika rezerwacji będzie realizowany przy pomocy triggerów.
+Należy wprowadzić zmianę która spowoduje, że zapis do dziennika rezerwacji będzie realizowany przy pomocy triggerów.
 Oczywiście po wprowadzeniu tej zmiany należy uaktualnić procedury modyfikujące dane. Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 3).
-#### Trigger obsługujący dodanie rezerwacji
-#### Trigger obsługujący zmianę statusu
-#### Trigger zabraniający usunięcia rezerwacji
 
-### 9. Zmiana strategii obsługi redundantnego pola liczba_wolnych_miejsc. Realizacja przy pomocy trigerów
-Oczywiście po wprowadzeniu tej zmiany należy uaktualnić procedury modyfikujące dane. Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 4).
 #### Trigger obsługujący dodanie rezerwacji
+```sql
+CREATE OR REPLACE TRIGGER rezerwacje_insert
+AFTER INSERT ON rezerwacje FOR EACH ROW
+BEGIN
+    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+        VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
+END;
+```
+
 #### Trigger obsługujący zmianę statusu
-#### Trigger obsługujący zmianę liczby miejsc na poziomie wycieczki
+```sql
+CREATE OR REPLACE TRIGGER rezerwacje_update
+AFTER UPDATE ON rezerwacje FOR EACH ROW
+BEGIN
+    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+        VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
+END;
+```
+
+#### Trigger zabraniający usunięcia rezerwacji
+```sql
+CREATE OR REPLACE TRIGGER rezerwacje_update
+BEFORE DELETE ON rezerwacje FOR EACH ROW
+BEGIN
+    RAISE_APPLICATION_ERROR(-20009, 'Nie można usuwać rezerwacji');
+END;
+```
+
+#### dodaj_rezerwacje_3
+```sql
+CREATE OR REPLACE PROCEDURE dodaj_rezerwacje_3(
+    arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
+    arg_id_osoby osoby.id_osoby%TYPE
+) AS
+    inserted_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE;
+    inserted_status rezerwacje.status%TYPE;
+BEGIN
+    sprawdz_czy_wycieczka_istnieje(arg_id_wycieczki);
+    sprawdz_czy_wycieczka_jeszcze_sie_nie_odbyla(arg_id_wycieczki);
+    sprawdz_czy_jest_wolne_miejsce_2(arg_id_wycieczki);
+    sprawdz_czy_osoba_istnieje(arg_id_osoby);
+    sprawdz_czy_nie_istnieje_rezerwacja(arg_id_wycieczki, arg_id_osoby);
+
+    INSERT INTO rezerwacje (id_wycieczki, id_osoby, status)
+        VALUES (arg_id_wycieczki, arg_id_osoby, 'N')
+        RETURNING nr_rezerwacji, status INTO inserted_nr_rezerwacji, inserted_status;
+END;
+```
+
+#### zmien_status_rezerwacji_3
+```sql
+CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji_3(
+    arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
+    arg_status rezerwacje.status%TYPE
+) AS
+    current_status rezerwacje.status%TYPE;
+    current_id_wycieczki wycieczki.id_wycieczki%TYPE;
+BEGIN
+    sprawdz_czy_rezerwacja_istnieje(arg_nr_rezerwacji);
+
+    SELECT status
+        INTO current_status
+        FROM rezerwacje
+        WHERE nr_rezerwacji = arg_nr_rezerwacji;
+
+    IF current_status = 'A' AND arg_status != 'A' THEN
+        SELECT id_wycieczki
+            INTO current_id_wycieczki
+            FROM rezerwacje
+            WHERE nr_rezerwacji = arg_nr_rezerwacji;
+
+        sprawdz_czy_jest_wolne_miejsce_2(current_id_wycieczki);
+
+        UPDATE wycieczki
+            SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
+            WHERE id_wycieczki = current_id_wycieczki;
+    ELSIF current_status != 'A' AND current_status = 'A' THEN
+        UPDATE wycieczki
+            SET liczba_wolnych_miejsc = liczba_wolnych_miejsc + 1
+            WHERE id_wycieczki = current_id_wycieczki;
+    END IF;
+
+    UPDATE rezerwacje
+        SET status = arg_status
+        WHERE nr_rezerwacji = arg_nr_rezerwacji;
+END;
+```

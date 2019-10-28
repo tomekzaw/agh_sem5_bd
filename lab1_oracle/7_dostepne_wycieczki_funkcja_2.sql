@@ -6,7 +6,7 @@ CREATE OR REPLACE FUNCTION dostepne_wycieczki_funkcja_2(
 AS
 BEGIN
 	IF arg_data_do < arg_data_od THEN
-		raise_application_error(-20004, 'Początek przedziału dat nie może być później niż koniec');
+		RAISE_APPLICATION_ERROR(-20004, 'Początek przedziału dat nie może być później niż koniec');
 	END IF;
 
 	FOR row IN (

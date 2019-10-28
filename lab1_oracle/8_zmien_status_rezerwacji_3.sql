@@ -1,4 +1,4 @@
-CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji_2(
+CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji_3(
 	arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
 	arg_status rezerwacje.status%TYPE
 ) AS
@@ -32,7 +32,4 @@ BEGIN
 	UPDATE rezerwacje
 		SET status = arg_status
 		WHERE nr_rezerwacji = arg_nr_rezerwacji;
-		
-	INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
-		VALUES (arg_nr_rezerwacji, SYSDATE, arg_status);
 END;
