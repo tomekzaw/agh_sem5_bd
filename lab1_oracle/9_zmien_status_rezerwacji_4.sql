@@ -4,7 +4,9 @@ CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji_4(
 ) AS
 	current_status rezerwacje.status%TYPE;
 	current_id_wycieczki wycieczki.id_wycieczki%TYPE;
-BEGIN	
+BEGIN
+	sprawdz_czy_rezerwacja_istnieje(arg_nr_rezerwacji);
+
 	UPDATE rezerwacje
 		SET status = arg_status
 		WHERE nr_rezerwacji = arg_nr_rezerwacji;
