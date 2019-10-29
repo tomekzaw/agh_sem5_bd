@@ -13,3 +13,7 @@ BEGIN
 		RAISE_APPLICATION_ERROR(-20006, 'Rezerwacja już istnieje.');
 	END IF;
 END;
+
+CALL sprawdz_czy_nie_istnieje_rezerwacja(1, 1);
+CALL sprawdz_czy_nie_istnieje_rezerwacja(1, 2);
+CALL sprawdz_czy_nie_istnieje_rezerwacja(2, 1);

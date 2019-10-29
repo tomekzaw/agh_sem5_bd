@@ -12,3 +12,7 @@ BEGIN
 		RAISE_APPLICATION_ERROR(-20005, 'Wycieczka już się odbyła');
 	END IF;
 END;
+
+CALL sprawdz_czy_wycieczka_jeszcze_sie_nie_odbyla(1);
+CALL sprawdz_czy_wycieczka_jeszcze_sie_nie_odbyla(3);
+

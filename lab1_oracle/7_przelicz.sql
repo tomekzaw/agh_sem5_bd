@@ -6,3 +6,5 @@ BEGIN
 			FROM rezerwacje r
 			WHERE r.id_wycieczki = w.id_wycieczki AND r.status != 'A');
 END;
+
+CALL przelicz();

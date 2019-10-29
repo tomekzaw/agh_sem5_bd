@@ -170,7 +170,7 @@ Należy przygotować kilka widoków ułatwiających dostęp do danych.
 
 Każdy podpunkt został zrealizowany na dwa sposoby:
 * **wersja standardowa** – widok jest tworzony na podstawie zapytania SQL odwołującego się jedynie do istniejących tabel. Wadą tego rozwiązania jest brak spójności oraz duplikacja fragmentów zapytań odpowiedzialnych za realizację logiki biznesowej.
-* **wersja z widokiem pośrednim/z wykorzystaniem innych widoków** – widok jest tworzony na podstawie istniejących tabel lub innych widoków.
+* **wersja z widokiem pośrednim/z wykorzystaniem innych widoków** – widok jest tworzony na podstawie tabel lub istniejących już widoków.
 Widoki z sufiksem `_id` zawierają dodatkowo kolumny z identyfikatorami wycieczek, osób lub rezerwacji i są wykorzystywane do złączeń. Metoda ta pozwala pozbyć się potwórzeń fragmentów zapytań dotyczących logiki biznesowej.
 
 #### a) wycieczki_osoby(kraj, data, nazwa_wycieczki, imie, nazwisko, status_rezerwacji)
@@ -371,19 +371,14 @@ CREATE OR REPLACE VIEW rezerwacje_do_anulowania AS
 ```
 ##### Wersja z wykorzystaniem innych widoków:
 ```sql
+CREATE OR REPLACE VIEW rezerwacje_do_anulowania_id AS
+    SELECT *
+    FROM wycieczki_osoby_id
+    WHERE status_rezerwacji = 'N' AND data BETWEEN SYSDATE AND SYSDATE + INTERVAL '7' DAY;
+
 CREATE OR REPLACE VIEW rezerwacje_do_anulowania AS
-    SELECT
-        w.kraj,
-        w.data,
-        w.nazwa AS nazwa_wycieczki,
-        o.imie,
-        o.nazwisko,
-        o.kontakt
-    FROM rezerwacje r
-        JOIN wycieczki w ON w.id_wycieczki = r.id_wycieczki
-        JOIN osoby o ON o.id_osoby = r.id_osoby
-    WHERE
-        r.status = 'N' AND w.data BETWEEN SYSDATE AND SYSDATE + INTERVAL '7' DAY
+    SELECT kraj, data, nazwa_wycieczki, imie, nazwisko, kontakt
+    FROM rezerwacje_do_anulowania_id;
 ```
 ```sql
 SELECT * FROM rezerwacje_do_anulowania;
@@ -395,9 +390,11 @@ Proponowany zestaw widoków można rozbudować wedle uznania/potrzeb.
 ### 4. Tworzenie procedur/funkcji pobierających dane
 Podobnie jak w poprzednim przykładzie należy przygotować kilka procedur ułatwiających dostęp do danych. Procedury/funkcje powinny zwracać tabelę/zbiór wynikowy. Należy zwrócić uwagę na kontrolę parametrów (np. jeśli parametrem jest id_wycieczki to należy sprawdzić czy taka wycieczka istnieje).
 
-Utworzyłem procedury pomocnicze, które sprawdzają, czy osoba, wycieczka albo rezerwacja o podanym identyfikatorze istnieje w bazie danych.
+Utworzyłem procedury pomocnicze, które sprawdzają, czy osoba, wycieczka albo rezerwacja o podanym identyfikatorze istnieje w bazie danych. Procedury te działają jak asercje (tzn. przerywają działanie procedury wywołującej i zwracają błąd, gdy warunek nie jest spełniony).
 
-Oto kompletna lista kodów zdefiniowanych błędów:
+Aby nie dublować logiki biznesowej, funkcje pobierające dane korzystają ze zdefiniowanych uprzednio widoków z sufiksem `_id` (tzn. zawierających kolumny identyfikatorów).
+
+Prodecury odpowiadają również za kontrolę argumentów. Oto kompletna lista kodów zdefiniowanych błędów:
 
 | Kod | Opis |
 | :-: | :- |
@@ -504,7 +501,7 @@ SELECT * FROM TABLE(uczestnicy_wycieczki(1));
 #### b) rezerwacje_osoby(id_osoby)
 Procedura ma zwracać podobny zestaw danych jak widok wycieczki_osoby.
 
-Analogicznie jak w przypadku widoku wycieczki_osoby przyjąłem założenie, że rezerwacje anulowane powinny również być zwracane.
+Analogicznie jak w przypadku widoku wycieczki_osoby przyjąłem założenie, że anulowane rezerwacje również powinny być zwracane. W przeciwnym wypadku należy wzbogacić zapytanie o warunek `status_rezerwacji != 'A'`.
 ```sql
 CREATE OR REPLACE TYPE rezerwacja_osoby_type AS
     OBJECT (
@@ -541,6 +538,7 @@ SELECT * FROM TABLE(rezerwacje_osoby(3));
 ![](4b_rezerwacje_osoby.png)
 
 #### c) przyszle_rezerwacje_osoby(id_osoby)
+Działa analogicznie jak wycieczki_osoby, z tą różnicą, że zwraca jedynie rezerwacje wycieczek, które jeszcze się nie odbyły.
 ```sql
 CREATE OR REPLACE FUNCTION przyszle_rezerwacje_osoby(arg_id_osoby osoby.id_osoby%TYPE)
 RETURN rezerwacje_osoby_table_type PIPELINED
@@ -610,7 +608,7 @@ SELECT * FROM TABLE(dostepne_wycieczki_funkcja('Polska',
 ### 5. Tworzenie procedur modyfikujących dane
 Należy przygotować zestaw procedur pozwalających na modyfikację danych oraz kontrolę poprawności ich wprowadzania. Należy rozważyć użycie transakcji. Należy zwrócić uwagę na kontrolę parametrów (np. jeśli parametrem jest id_wycieczki to należy sprawdzić czy taka wycieczka istnieje, jeśli robimy rezerwację to należy sprawdzać czy są wolne miejsca).
 
-Utworzyłem następujące procedury pomocnicze, które działają jak asercje (przerywają działanie procedury wywołującej i zwracają błąd, gdy warunek nie jest spełniony).
+Utworzyłem kolejne procedury pomocnicze, które działają jak asercje (przerywają działanie procedury wywołującej i zwracają błąd, gdy warunek nie jest spełniony).
 
 #### sprawdz_czy_wycieczka_jeszcze_sie_nie_odbyla(id_wycieczki)
 ```sql
@@ -648,7 +646,7 @@ BEGIN
 END;
 ```
 
-#### sprawdz_czy_nie_istnieje_rezerwacja
+#### sprawdz_czy_nie_istnieje_rezerwacja(id_wycieczki, id_osoby)
 ```sql
 CREATE OR REPLACE PROCEDURE sprawdz_czy_nie_istnieje_rezerwacja(
     arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
@@ -703,16 +701,16 @@ BEGIN
         FROM rezerwacje
         WHERE nr_rezerwacji = arg_nr_rezerwacji;
 
-    IF current_status = 'A' AND arg_status != 'A' THEN
-        SELECT id_wycieczki
-        INTO current_id_wycieczki
-        FROM rezerwacje
-        WHERE nr_rezerwacji = arg_nr_rezerwacji;
-
-        sprawdz_czy_jest_wolne_miejsce(current_id_wycieczki);
-    END IF;
-
     IF current_status != arg_status THEN
+        IF current_status = 'A' AND arg_status != 'A' THEN
+            SELECT id_wycieczki
+                INTO current_id_wycieczki
+                FROM rezerwacje
+                WHERE nr_rezerwacji = arg_nr_rezerwacji;
+
+            sprawdz_czy_jest_wolne_miejsce(current_id_wycieczki);
+        END IF;
+
         UPDATE rezerwacje
             SET status = arg_status
             WHERE nr_rezerwacji = arg_nr_rezerwacji;
@@ -770,7 +768,7 @@ ALTER TABLE rezerwacje_log
 ```
 Należy zmienić warstwę procedur modyfikujących dane tak aby dopisywały informację do dziennika.
 
-#### a) dodaj_rezerwacje(id_wycieczki, id_osoby)
+#### dodaj_rezerwacje(id_wycieczki, id_osoby)
 ```sql
 CREATE OR REPLACE PROCEDURE dodaj_rezerwacje(
     arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
@@ -794,7 +792,7 @@ BEGIN
 END;
 ```
 
-#### b) zmien_status_rezerwacji(nr_rezerwacji, status)
+#### zmien_status_rezerwacji(nr_rezerwacji, status)
 ```sql
 CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji(
     arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
@@ -805,21 +803,16 @@ CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji(
 BEGIN
     sprawdz_czy_rezerwacja_istnieje(arg_nr_rezerwacji);
 
-    SELECT status
-        INTO current_status
+    SELECT status, id_wycieczki
+        INTO current_status, current_id_wycieczki
         FROM rezerwacje
         WHERE nr_rezerwacji = arg_nr_rezerwacji;
 
-    IF current_status = 'A' AND arg_status != 'A' THEN
-        SELECT id_wycieczki
-            INTO current_id_wycieczki
-            FROM rezerwacje
-            WHERE nr_rezerwacji = arg_nr_rezerwacji;
-
-        sprawdz_czy_jest_wolne_miejsce(current_id_wycieczki);
-    END IF;
-
     IF current_status != arg_status THEN
+        IF current_status = 'A' AND arg_status != 'A' THEN
+            sprawdz_czy_jest_wolne_miejsce(current_id_wycieczki);
+        END IF;
+
         UPDATE rezerwacje
             SET status = arg_status
             WHERE nr_rezerwacji = arg_nr_rezerwacji;
@@ -863,12 +856,13 @@ BEGIN
             FROM rezerwacje r
             WHERE r.id_wycieczki = w.id_wycieczki AND r.status != 'A');
 END;
-
+```
+```sql
 CALL przelicz();
 ```
 
 Należy zmodyfikować warstwę procedur pobierających dane, podobnie jak w przypadku widoków.
-#### dostepne_wycieczki_funkcja_2
+#### dostepne_wycieczki_funkcja_2(kraj, data_od, data_do)
 ```sql
 CREATE OR REPLACE FUNCTION dostepne_wycieczki_funkcja_2(
     arg_kraj wycieczki.kraj%TYPE,
@@ -893,7 +887,7 @@ END;
 ```
 
 Należy zmodyfikować procedury wprowadzające dane tak aby korzystały/aktualizowały pole liczba_wolnych_miejsc w tabeli wycieczki. Najlepiej to zrobić tworząc nowe wersje (np. z sufiksem 2).
-#### sprawdz_czy_jest_wolne_miejsce_2
+#### sprawdz_czy_jest_wolne_miejsce_2(id_wycieczki)
 ```sql
 CREATE OR REPLACE PROCEDURE sprawdz_czy_jest_wolne_miejsce_2(
     arg_id_wycieczki wycieczki.id_wycieczki%TYPE
@@ -911,7 +905,7 @@ BEGIN
 END;
 ```
 
-#### dodaj_rezerwacje_2
+#### dodaj_rezerwacje_2(id_wycieczki, id_osoby)
 ```sql
 CREATE OR REPLACE PROCEDURE dodaj_rezerwacje_2(
     arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
@@ -939,7 +933,7 @@ BEGIN
 END;
 ```
 
-#### zmien_status_rezerwacji_2
+#### zmien_status_rezerwacji_2(nr_rezerwacji, status)
 ```sql
 CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji_2(
     arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
@@ -950,38 +944,35 @@ CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji_2(
 BEGIN
     sprawdz_czy_rezerwacja_istnieje(arg_nr_rezerwacji);
 
-    SELECT status
-        INTO current_status
+    SELECT status, id_wycieczki
+        INTO current_status, current_id_wycieczki
         FROM rezerwacje
         WHERE nr_rezerwacji = arg_nr_rezerwacji;
 
-    IF current_status = 'A' AND arg_status != 'A' THEN
-        SELECT id_wycieczki
-            INTO current_id_wycieczki
-            FROM rezerwacje
+    IF current_status != arg_status THEN
+        IF current_status != 'A' AND arg_status = 'A' THEN
+            UPDATE wycieczki
+                SET liczba_wolnych_miejsc = liczba_wolnych_miejsc + 1
+                WHERE id_wycieczki = current_id_wycieczki;
+        ELSIF current_status = 'A' AND arg_status != 'A' THEN
+            sprawdz_czy_jest_wolne_miejsce_2(current_id_wycieczki);
+
+            UPDATE wycieczki
+                SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
+                WHERE id_wycieczki = current_id_wycieczki;
+        END IF;
+
+        UPDATE rezerwacje
+            SET status = arg_status
             WHERE nr_rezerwacji = arg_nr_rezerwacji;
 
-        sprawdz_czy_jest_wolne_miejsce_2(current_id_wycieczki);
-
-        UPDATE wycieczki
-            SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
-            WHERE id_wycieczki = current_id_wycieczki;
-    ELSIF current_status != 'A' AND current_status = 'A' THEN
-        UPDATE wycieczki
-            SET liczba_wolnych_miejsc = liczba_wolnych_miejsc + 1
-            WHERE id_wycieczki = current_id_wycieczki;
+        INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+            VALUES (arg_nr_rezerwacji, SYSDATE, arg_status);
     END IF;
-
-    UPDATE rezerwacje
-        SET status = arg_status
-        WHERE nr_rezerwacji = arg_nr_rezerwacji;
-
-    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
-        VALUES (arg_nr_rezerwacji, SYSDATE, arg_status);
 END;
 ```
 
-#### zmien_liczbe_miejsc_2
+#### zmien_liczbe_miejsc_2(id_wycieczki, liczba_miejsc)
 ```sql
 CREATE OR REPLACE PROCEDURE zmien_liczbe_miejsc_2(
     arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
@@ -1019,12 +1010,12 @@ Oczywiście po wprowadzeniu tej zmiany należy uaktualnić procedury modyfikują
 CREATE OR REPLACE TRIGGER rezerwacje_after_insert
 AFTER INSERT ON rezerwacje FOR EACH ROW
 BEGIN
-	INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
-		VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
+    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+        VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
 END;
 ```
 
-#### dodaj_rezerwacje_3
+#### dodaj_rezerwacje_3(id_wycieczki, id_osoby)
 ```sql
 CREATE OR REPLACE PROCEDURE dodaj_rezerwacje_3(
     arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
@@ -1050,12 +1041,12 @@ END;
 CREATE OR REPLACE TRIGGER rezerwacje_after_update
 AFTER UPDATE ON rezerwacje FOR EACH ROW
 BEGIN
-	INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
-		VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
+    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+        VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
 END;
 ```
 
-#### zmien_status_rezerwacji_3
+#### zmien_status_rezerwacji_3(nr_rezerwacji, status)
 ```sql
 CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji_3(
     arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
@@ -1099,7 +1090,7 @@ END;
 CREATE OR REPLACE TRIGGER rezerwacje_before_delete
 BEFORE DELETE ON rezerwacje FOR EACH ROW
 BEGIN
-	RAISE_APPLICATION_ERROR(-20009, 'Nie można usuwać rezerwacji');
+    RAISE_APPLICATION_ERROR(-20009, 'Nie można usuwać rezerwacji');
 END;
 ```
 
@@ -1122,16 +1113,16 @@ END;
 CREATE OR REPLACE TRIGGER rezerwacje_after_insert
 AFTER INSERT ON rezerwacje FOR EACH ROW
 BEGIN
-	INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
-		VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
+    INSERT INTO rezerwacje_log (id_rezerwacji, data, status)
+        VALUES (:NEW.nr_rezerwacji, SYSDATE, :NEW.status);
 
-	UPDATE wycieczki
-		SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
-		WHERE id_wycieczki = :NEW.id_wycieczki;
+    UPDATE wycieczki
+        SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
+        WHERE id_wycieczki = :NEW.id_wycieczki;
 END;
 ```
 
-#### dodaj_rezerwacje_4
+#### dodaj_rezerwacje_4(id_wycieczki, id_osoby)
 ```sql
 CREATE OR REPLACE PROCEDURE dodaj_rezerwacje_4(
     arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
@@ -1148,34 +1139,34 @@ END;
 CREATE OR REPLACE TRIGGER rezerwacje_before_update
 BEFORE UPDATE ON rezerwacje FOR EACH ROW
 BEGIN
-	sprawdz_czy_rezerwacja_istnieje(:NEW.nr_rezerwacji);
+    sprawdz_czy_rezerwacja_istnieje(:NEW.nr_rezerwacji);
 
-	IF :OLD.status = 'A' AND :NEW.status != 'A' THEN
-		sprawdz_czy_jest_wolne_miejsce_2(:NEW.id_wycieczki);
+    IF :OLD.status = 'A' AND :NEW.status != 'A' THEN
+        sprawdz_czy_jest_wolne_miejsce_2(:NEW.id_wycieczki);
 
-		UPDATE wycieczki
-			SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
-			WHERE id_wycieczki = :NEW.id_wycieczki;
-	ELSIF :OLD.status != 'A' AND :NEW.status = 'A' THEN
-		UPDATE wycieczki
-			SET liczba_wolnych_miejsc = liczba_wolnych_miejsc + 1
-			WHERE id_wycieczki = :NEW.id_wycieczki;
-	END IF;
+        UPDATE wycieczki
+            SET liczba_wolnych_miejsc = liczba_wolnych_miejsc - 1
+            WHERE id_wycieczki = :NEW.id_wycieczki;
+    ELSIF :OLD.status != 'A' AND :NEW.status = 'A' THEN
+        UPDATE wycieczki
+            SET liczba_wolnych_miejsc = liczba_wolnych_miejsc + 1
+            WHERE id_wycieczki = :NEW.id_wycieczki;
+    END IF;
 END;
 ```
 
-#### zmien_status_rezerwacji_4
+#### zmien_status_rezerwacji_4(nr_rezerwacji, status)
 ```sql
 CREATE OR REPLACE PROCEDURE zmien_status_rezerwacji_4(
-	arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
-	arg_status rezerwacje.status%TYPE
+    arg_nr_rezerwacji rezerwacje.nr_rezerwacji%TYPE,
+    arg_status rezerwacje.status%TYPE
 ) AS
-	current_status rezerwacje.status%TYPE;
-	current_id_wycieczki wycieczki.id_wycieczki%TYPE;
+    current_status rezerwacje.status%TYPE;
+    current_id_wycieczki wycieczki.id_wycieczki%TYPE;
 BEGIN
-	UPDATE rezerwacje
-		SET status = arg_status
-		WHERE nr_rezerwacji = arg_nr_rezerwacji;
+    UPDATE rezerwacje
+        SET status = arg_status
+        WHERE nr_rezerwacji = arg_nr_rezerwacji;
 END;
 ```
 
@@ -1184,30 +1175,30 @@ END;
 CREATE OR REPLACE TRIGGER wycieczki_before_update
 BEFORE UPDATE ON wycieczki FOR EACH ROW
 BEGIN
-	IF :NEW.liczba_miejsc <= 0 THEN
-		RAISE_APPLICATION_ERROR(-20007, 'Liczba miejsc musi być dodatnią liczbą naturalną');
-	END IF;
-	sprawdz_czy_wycieczka_istnieje(:NEW.id_wycieczki);
+    IF :NEW.liczba_miejsc <= 0 THEN
+        RAISE_APPLICATION_ERROR(-20007, 'Liczba miejsc musi być dodatnią liczbą naturalną');
+    END IF;
+    sprawdz_czy_wycieczka_istnieje(:NEW.id_wycieczki);
 
-	IF :NEW.liczba_miejsc < (:OLD.liczba_miejsc - :OLD.liczba_wolnych_miejsc) THEN
-		RAISE_APPLICATION_ERROR(-20008, 'Liczba miejsc nie może być mniejsza niż liczba zajętych miejsc');
-	END IF;
+    IF :NEW.liczba_miejsc < (:OLD.liczba_miejsc - :OLD.liczba_wolnych_miejsc) THEN
+        RAISE_APPLICATION_ERROR(-20008, 'Liczba miejsc nie może być mniejsza niż liczba zajętych miejsc');
+    END IF;
 
-	SELECT :NEW.liczba_miejsc - (:OLD.liczba_miejsc - :OLD.liczba_wolnych_miejsc)
-		INTO :NEW.liczba_wolnych_miejsc
-		FROM dual;
+    SELECT :NEW.liczba_miejsc - (:OLD.liczba_miejsc - :OLD.liczba_wolnych_miejsc)
+        INTO :NEW.liczba_wolnych_miejsc
+        FROM dual;
 END;
 ```
 
-#### zmien_liczbe_miejsc_4
+#### zmien_liczbe_miejsc_4(id_wycieczki, liczba_miejsc)
 ```sql
 CREATE OR REPLACE PROCEDURE zmien_liczbe_miejsc_4(
-	arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
-	arg_liczba_miejsc INTEGER
+    arg_id_wycieczki wycieczki.id_wycieczki%TYPE,
+    arg_liczba_miejsc INTEGER
 ) AS
 BEGIN
-	UPDATE wycieczki
-		SET liczba_miejsc = arg_liczba_miejsc
-		WHERE id_wycieczki = arg_id_wycieczki;
+    UPDATE wycieczki
+        SET liczba_miejsc = arg_liczba_miejsc
+        WHERE id_wycieczki = arg_id_wycieczki;
 END;
 ```
