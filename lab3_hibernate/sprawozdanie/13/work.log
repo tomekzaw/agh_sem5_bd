@@ -1,0 +1,58 @@
+>?
+	order
+	exit
+	end
+>order
+(Order-1)>?
+	<product name>
+	submit
+	cancel
+(Order-1)>submit
+Your order is empty
+(Order-1)>pian
+Ambiguous product name
+	Fortepian
+	Pianino
+(Order-1)>forte
+(Order-1)(Product-Fortepian)>1
+Added 1 of Fortepian to your order
+(Order-1)>pian
+Ambiguous product name
+	Fortepian
+	Pianino
+(Order-1)>pianino
+(Order-1)(Product-Pianino)>2
+Added 2 of Pianino to your order
+(Order-1)>fortep
+(Order-1)(Product-Fortepian)>-1
+Removed all Fortepian from your order
+(Order-1)>piani
+(Order-1)(Product-Pianino)>-2
+Removed all Pianino from your order
+(Order-1)>show
+Your order is empty
+(Order-1)>fortep
+(Order-1)(Product-Fortepian)>3
+Added 3 of Fortepian from your order
+(Order-1)>pianin
+(Order-1)(Product-Pianino)>-42
+Quantity must be a non-negative integer
+(Order-1)(Product-Pianino)>fortep
+Invalid number
+(Order-1)(Product-Pianino)>2
+Added 2 of Pianino from your order
+(Order-1)>flet
+Ambiguous product name
+	Flet podłużny
+	Flet poprzeczny
+(Order-1)>poprz
+(Order-1)(Product-Flet poprzeczny)>2
+Added 2 of Flet poprzeczny to your order
+(Order-1)>submit
+Your order has been submitted. Thank you!
+>?
+	order
+	exit
+	end
+>order
+(Order-2)>

@@ -1,0 +1,45 @@
+Akordeon
+Altówka
+Bęben wielki
+Celesta
+Cymbały
+Dzwonki
+Fagot
+Flet podłużny
+Flet poprzeczny
+Fortepian
+Gitara akustyczna
+Gitara basowa
+Gitara elektryczna
+Gong
+Gramofon
+Harfa
+Harmonia
+Klarnet
+Klawesyn
+Klawikord
+Kontrabas
+Kotły
+Ksylofon
+Lutnia
+Mandolina
+Marimba
+Obój
+Organy
+Organy elektryczne
+Perkusja
+Pianino
+Puzon
+Saksofon
+Skrzypce
+Syntezator
+Talerze
+Tamburyn
+Trójkąt
+Trąbka
+Tuba
+Viola da gamba
+Waltornia
+Werbel
+Wibrafon
+Wiolonczela
